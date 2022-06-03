@@ -192,7 +192,7 @@ class DMIterator(object):
                 f"At b = {gb_deg:.2f} deg this means a max DM of {galactic_dm_cap:.4f}"
                 )
             self.dm_end = min(self.dm_end, galactic_dm_cap)
-        
+
         log.info(f"Selecting DM trials in the range {self.dm_start:.4f} to {self.dm_end:.4f}")
 
         # Try to infer band parameters from the data
@@ -250,3 +250,27 @@ class DMIterator(object):
 
     def tsamp_max(self):
         return max([md['tsamp'] for md in self.metadata_list])
+
+    def mergein(self, other):
+        """Merge another DMIterator into this one"""
+        condition_list= (
+            self.fmt == other.fmt
+            and self.wmin == other.wmin
+            and self.fmin == other.fmin
+            and self.fmax == other.fmax
+            and self.nchans == other.nchans
+        )
+        if condition_list:
+            overlapping_DMs = (set(self.metadata_dict.keys()) & set(other.metadata_dict.keys()))
+            if overlapping_DMs:
+                raise RuntimeError(f"DMIterators contain overlapping DMs, {overlapping_DMs}. Cannot merge.")
+            self.dm_start = min(self.dm_start, other.dm_start)
+            self.dm_end = max(self.dm_end, other.dm_end)
+            self.filenames.extend(other.filenames)
+            self.metadata_list.extend(other.metadata_list)
+            self.metadata_dict += other.metadata_dict
+            self.selected_dms = np.concatenate([self.selected_dms, other.selected_dms])
+            log.debug("Merged DMIterators")
+
+        else:
+            raise RuntimeError("DMIterators' fmt/wmin/fmin/fmax/nchans do not match. Cannot merge.")
