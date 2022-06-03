@@ -22,7 +22,7 @@ from riptide.pipeline.worker_pool import WorkerPool
 from riptide.pipeline.peak_cluster import PeakCluster, clusters_to_dataframe
 from riptide.pipeline.harmonic_testing import htest
 
-from riptide.serialization import save_json
+from riptide.serialization import save_json, load_json
 from riptide.timing import timing
 
 
@@ -189,15 +189,14 @@ class Pipeline(object):
         log.info("Search complete")
 
     @timing
-    def cluster_peaks(self, tmed=None):
+    def cluster_peaks(self):
         if not self.peaks:
             log.info("No peaks found: skipping clustering")
             return
 
         log.info("Clustering peaks")
         conf = self.config
-        if tmed is None:
-            tmed = self.dmiter.tobs_median()
+        tmed = self.dmiter.tobs_median()
         clrad = conf['clustering']['radius'] / tmed
 
         log.debug(f"Median Tobs = {tmed:.2f} s")
@@ -397,7 +396,7 @@ class Pipeline(object):
     def get_peaks_filename(self):
         a_filename = os.path.basename(dmiter.filenames[0])
         withoutDM = a_filename[:a_filename.rfind("DM")-1]
-        fname = f"peaks_{withoutDM}_DM{self.dmiter.dm_start:.3f}-{self.dmiter.dm_end:.3f}_tmed{self.dmiter.tobs_median():.3f}.json"
+        fname = f"peaks_{withoutDM}_DM{self.dmiter.dm_start:.3f}-{self.dmiter.dm_end:.3f}.json"
         return(fname)
 
     @timing
@@ -408,11 +407,32 @@ class Pipeline(object):
         fname = os.path.join(outdir, self.get_peaks_filename())
         log.info(f"Saving peaks to {fname}")
         save_json(fname, self.peaks)
+        log.info(f"Saving dmiter to {fname[:-5]}_dmiter.json")
+        save_json(f"{fname[:-5]}_dmiter.json", self.dmiter)
 
+    @timing
     def process_end(self, peaksfiles, *args):
-        "take in saved peaks files, cluster and filter"
-        peaks = []
-        pass
+        """Take in saved peaks files, cluster and filter"""
+        fname = peaksfiles[0]
+        log.info(f"Loading peaks from {fname}")
+        self.peaks = load_json(fname)
+        log.info(f"Loading dmiter from {fname[:-5]}_dmiter.json")
+        self.dmiter = load_json(f"{fname[:-5]}_dmiter.json")
+        for i in range(1, len(peaksfiles)):
+            fname = peaksfiles[i]
+            log.info(f"Loading peaks from {fname}")
+            tmp_peaks = load_json(fname)
+            log.info(f"Loading dmiter from {fname[:-5]}_dmiter.json")
+            tmp_dmiter = load_json(f"{fname[:-5]}_dmiter.json")
+            log.info("Merging in")
+            self.peaks.extend(tmp_peaks)
+            self.dmiter.mergein(tmp_dmiter)
+        log.info("Amalgamated peaks and DMIterators")
+        self.cluster_peaks()
+        self.flag_harmonics()
+        self.apply_candidate_filters()
+        # NB can't make candidates since that involves reading the .dat files
+        self.save_products(outdir=outdir)
 
 
 
@@ -456,6 +476,17 @@ def get_parser():
         type=outdir,
         default=os.getcwd(),
         help="Output directory for the data products",
+    )
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
+        '--initial',
+        action='store_true',
+        help="Only run initial part of pipeline, stop after search, and save the peaks"
+    )
+    group.add_argument(
+        '--final',
+        action='store_true',
+        help="Run filtering and clustering on results from an --initial run. In this case <files> should be the peaks files"
     )
     parser.add_argument(
         "-f",
@@ -516,8 +547,10 @@ def run_program(args):
         logging.getLogger('riptide.timing').setLevel('WARNING')
 
     pipeline = Pipeline.from_yaml_config(args.config)
-    if args.init:
+    if args.initial:
         pipeline.process_init(args.files, args.outdir)
+    elif args.final:
+        pipeline.process_end(args.files, args.outdir)
     else:
         pipeline.process(args.files, args.outdir)
 
