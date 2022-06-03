@@ -106,12 +106,12 @@ class Pipeline(object):
         # The code below can return wrong results if the ranges do not connect
         # perfectly with each other
         ranges = sorted(
-            self.config['ranges'], 
+            self.config['ranges'],
             key=lambda r: r['ffa_search']['period_max']
             )
-        
+
         pmin_global = min(rng['ffa_search']['period_min'] for rng in ranges)
-        pmax_global = max(rng['ffa_search']['period_max'] for rng in ranges) 
+        pmax_global = max(rng['ffa_search']['period_max'] for rng in ranges)
 
         if period < pmin_global:
             msg = (
@@ -166,13 +166,13 @@ class Pipeline(object):
 
         # NOTE: call dmiter.prepare() first. Before that, dmiter.tsloader is None
         self.worker_pool = WorkerPool(
-            conf['dereddening'], 
+            conf['dereddening'],
             conf['ranges'],
             processes=conf['processes'],
             fmt=conf['data']['format']
         )
         log.info("Pipeline ready")
-        
+
     @timing
     def search(self):
         """
@@ -183,20 +183,21 @@ class Pipeline(object):
         for fnames in self.dmiter.iterate_filenames(chunksize=self.config['processes']):
             peaks.extend(
                 self.worker_pool.process_fname_list(fnames)
-            )        
+            )
         self.peaks = sorted(peaks, key=lambda p: p.period)
         log.info("Total peaks found: {}".format(len(peaks)))
         log.info("Search complete")
 
     @timing
-    def cluster_peaks(self):
+    def cluster_peaks(self, tmed=None):
         if not self.peaks:
             log.info("No peaks found: skipping clustering")
             return
 
         log.info("Clustering peaks")
         conf = self.config
-        tmed = self.dmiter.tobs_median()
+        if tmed is None:
+            tmed = self.dmiter.tobs_median()
         clrad = conf['clustering']['radius'] / tmed
 
         log.debug(f"Median Tobs = {tmed:.2f} s")
@@ -225,7 +226,7 @@ class Pipeline(object):
         fmin = self.dmiter.fmin
         fmax = self.dmiter.fmax
         kwargs = self.config['harmonic_flagging']
-        
+
         clusters_decreasing_snr = sorted(self.clusters, key=lambda c: c.centre.snr, reverse=True)
 
         # Assign ranks first
@@ -242,7 +243,7 @@ class Pipeline(object):
             if related:
                 H.parent_fundamental = F
                 H.hfrac = fraction
-        
+
         harmonics = list(filter(lambda c: c.is_harmonic, self.clusters))
         log.info(f"Harmonics flagged: {len(harmonics)}")
         log.info(f"Fundamental clusters: {len(self.clusters) - len(harmonics)}")
@@ -291,7 +292,7 @@ class Pipeline(object):
 
     @timing
     def build_candidates(self):
-        log.info("Building candidates")      
+        log.info("Building candidates")
         clusters_decreasing_snr = sorted(self.clusters_filtered, key=lambda c: c.centre.snr, reverse=True)
 
         if not clusters_decreasing_snr:
@@ -310,7 +311,7 @@ class Pipeline(object):
             fname = self.dmiter.get_filename(dm)
             ts = self.worker_pool.loader(fname)
             ts = ts.deredden(
-                width=self.config['dereddening']['rmed_width'], 
+                width=self.config['dereddening']['rmed_width'],
                 minpts=self.config['dereddening']['rmed_minpts'])
             ts = ts.normalise()
 
@@ -377,7 +378,7 @@ class Pipeline(object):
         # the pool
         pool.close()
         pool.join()
-        log.info("Data products written")       
+        log.info("Data products written")
 
     @timing
     def process(self, files, outdir):
@@ -392,6 +393,28 @@ class Pipeline(object):
         self.apply_candidate_filters()
         self.build_candidates()
         self.save_products(outdir=outdir)
+
+    def get_peaks_filename(self):
+        a_filename = os.path.basename(dmiter.filenames[0])
+        withoutDM = a_filename[:a_filename.rfind("DM")-1]
+        fname = f"peaks_{withoutDM}_DM{self.dmiter.dm_start:.3f}-{self.dmiter.dm_end:.3f}_tmed{self.dmiter.tobs_median():.3f}.json"
+        return(fname)
+
+    @timing
+    def process_init(self, files, outdir):
+        """Only run up to search and save results"""
+        self.prepare(files)
+        self.search()
+        fname = os.path.join(outdir, self.get_peaks_filename())
+        log.info(f"Saving peaks to {fname}")
+        save_json(fname, self.peaks)
+
+    def process_end(self, peaksfiles, *args):
+        "take in saved peaks files, cluster and filter"
+        peaks = []
+        pass
+
+
 
     @classmethod
     def from_yaml_config(cls, fname):
@@ -435,7 +458,7 @@ def get_parser():
         help="Output directory for the data products",
     )
     parser.add_argument(
-        "-f", 
+        "-f",
         "--logfile",
         type=str,
         default=None,
@@ -462,7 +485,7 @@ def get_parser():
 
 def run_program(args):
     ### Select non-interactive backend
-    # matplotlib.use('Agg') would not work here, due to importing order 
+    # matplotlib.use('Agg') would not work here, due to importing order
     # the console_scripts entry point design means that 'riptide' is always imported first,
     # importing everything else in riptide's __init__.py, which ends up setting the backend
     # before the first line of this script is reached
@@ -493,9 +516,12 @@ def run_program(args):
         logging.getLogger('riptide.timing').setLevel('WARNING')
 
     pipeline = Pipeline.from_yaml_config(args.config)
-    pipeline.process(args.files, args.outdir)
+    if args.init:
+        pipeline.process_init(args.files, args.outdir)
+    else:
+        pipeline.process(args.files, args.outdir)
 
-    # If you have seen the movie "The Martian" and always wanted to look like 
+    # If you have seen the movie "The Martian" and always wanted to look like
     # an actual scientist to your friends and family. Thank me later.
     log.info("CALCULATIONS CORRECT")
 
@@ -503,7 +529,7 @@ def run_program(args):
 # NOTE: main() is the entry point of the console script
 def main():
     # NOTE (IMPORTANT): Force all numpy libraries to use a single thread/CPU
-    # Each DM trial is assigned to a different process, and for optimal 
+    # Each DM trial is assigned to a different process, and for optimal
     # performance, each process should be limited to 1 CPU
     with threadpoolctl.threadpool_limits(limits=1):
         parser = get_parser()
