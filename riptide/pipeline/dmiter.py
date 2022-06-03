@@ -266,7 +266,6 @@ class DMIterator(object):
                 raise RuntimeError(f"DMIterators contain overlapping DMs, {overlapping_DMs}. Cannot merge.")
             self.dm_start = min(self.dm_start, other.dm_start)
             self.dm_end = max(self.dm_end, other.dm_end)
-            self.filenames.extend(other.filenames)
             self.metadata_list.extend(other.metadata_list)
             self.metadata_dict += other.metadata_dict
             self.selected_dms = np.concatenate([self.selected_dms, other.selected_dms])

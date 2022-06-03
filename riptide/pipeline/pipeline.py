@@ -394,7 +394,7 @@ class Pipeline(object):
         self.save_products(outdir=outdir)
 
     def get_peaks_filename(self):
-        a_filename = os.path.basename(self.dmiter.filenames[0])
+        a_filename = os.path.basename(self.dmiter.get_filename(self.selected_dms[0]))
         withoutDM = a_filename[:a_filename.rfind("DM")-1]
         fname = f"peaks_{withoutDM}_DM{self.dmiter.dm_start:.3f}-{self.dmiter.dm_end:.3f}.json"
         return(fname)
