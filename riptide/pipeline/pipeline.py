@@ -106,12 +106,12 @@ class Pipeline(object):
         # The code below can return wrong results if the ranges do not connect
         # perfectly with each other
         ranges = sorted(
-            self.config['ranges'], 
+            self.config['ranges'],
             key=lambda r: r['ffa_search']['period_max']
             )
-        
+
         pmin_global = min(rng['ffa_search']['period_min'] for rng in ranges)
-        pmax_global = max(rng['ffa_search']['period_max'] for rng in ranges) 
+        pmax_global = max(rng['ffa_search']['period_max'] for rng in ranges)
 
         if period < pmin_global:
             msg = (
@@ -157,6 +157,7 @@ class Pipeline(object):
             fmin=conf['data']['fmin'],
             fmax=conf['data']['fmax'],
             nchans=conf['data']['nchans'],
+            dont_select=conf['dmselect']['dont_select'],
         )
 
         tsamp_max = self.dmiter.tsamp_max()
@@ -166,13 +167,13 @@ class Pipeline(object):
 
         # NOTE: call dmiter.prepare() first. Before that, dmiter.tsloader is None
         self.worker_pool = WorkerPool(
-            conf['dereddening'], 
+            conf['dereddening'],
             conf['ranges'],
             processes=conf['processes'],
             fmt=conf['data']['format']
         )
         log.info("Pipeline ready")
-        
+
     @timing
     def search(self):
         """
@@ -183,7 +184,7 @@ class Pipeline(object):
         for fnames in self.dmiter.iterate_filenames(chunksize=self.config['processes']):
             peaks.extend(
                 self.worker_pool.process_fname_list(fnames)
-            )        
+            )
         self.peaks = sorted(peaks, key=lambda p: p.period)
         log.info("Total peaks found: {}".format(len(peaks)))
         log.info("Search complete")
@@ -225,7 +226,7 @@ class Pipeline(object):
         fmin = self.dmiter.fmin
         fmax = self.dmiter.fmax
         kwargs = self.config['harmonic_flagging']
-        
+
         clusters_decreasing_snr = sorted(self.clusters, key=lambda c: c.centre.snr, reverse=True)
 
         # Assign ranks first
@@ -242,7 +243,7 @@ class Pipeline(object):
             if related:
                 H.parent_fundamental = F
                 H.hfrac = fraction
-        
+
         harmonics = list(filter(lambda c: c.is_harmonic, self.clusters))
         log.info(f"Harmonics flagged: {len(harmonics)}")
         log.info(f"Fundamental clusters: {len(self.clusters) - len(harmonics)}")
@@ -291,7 +292,7 @@ class Pipeline(object):
 
     @timing
     def build_candidates(self):
-        log.info("Building candidates")      
+        log.info("Building candidates")
         clusters_decreasing_snr = sorted(self.clusters_filtered, key=lambda c: c.centre.snr, reverse=True)
 
         if not clusters_decreasing_snr:
@@ -310,7 +311,7 @@ class Pipeline(object):
             fname = self.dmiter.get_filename(dm)
             ts = self.worker_pool.loader(fname)
             ts = ts.deredden(
-                width=self.config['dereddening']['rmed_width'], 
+                width=self.config['dereddening']['rmed_width'],
                 minpts=self.config['dereddening']['rmed_minpts'])
             ts = ts.normalise()
 
@@ -377,7 +378,7 @@ class Pipeline(object):
         # the pool
         pool.close()
         pool.join()
-        log.info("Data products written")       
+        log.info("Data products written")
 
     @timing
     def process(self, files, outdir):
@@ -435,7 +436,7 @@ def get_parser():
         help="Output directory for the data products",
     )
     parser.add_argument(
-        "-f", 
+        "-f",
         "--logfile",
         type=str,
         default=None,
@@ -462,7 +463,7 @@ def get_parser():
 
 def run_program(args):
     ### Select non-interactive backend
-    # matplotlib.use('Agg') would not work here, due to importing order 
+    # matplotlib.use('Agg') would not work here, due to importing order
     # the console_scripts entry point design means that 'riptide' is always imported first,
     # importing everything else in riptide's __init__.py, which ends up setting the backend
     # before the first line of this script is reached
@@ -495,7 +496,7 @@ def run_program(args):
     pipeline = Pipeline.from_yaml_config(args.config)
     pipeline.process(args.files, args.outdir)
 
-    # If you have seen the movie "The Martian" and always wanted to look like 
+    # If you have seen the movie "The Martian" and always wanted to look like
     # an actual scientist to your friends and family. Thank me later.
     log.info("CALCULATIONS CORRECT")
 
@@ -503,7 +504,7 @@ def run_program(args):
 # NOTE: main() is the entry point of the console script
 def main():
     # NOTE (IMPORTANT): Force all numpy libraries to use a single thread/CPU
-    # Each DM trial is assigned to a different process, and for optimal 
+    # Each DM trial is assigned to a different process, and for optimal
     # performance, each process should be limited to 1 CPU
     with threadpoolctl.threadpool_limits(limits=1):
         parser = get_parser()

@@ -12,7 +12,7 @@ log = logging.getLogger('riptide.pipeline.dmiter')
 KDM = 1.0 / 2.41e-4
 
 
-def select_dms(trial_dms, dm_start, dm_end, fmin, fmax, nchans, wmin):
+def select_dms(trial_dms, dm_start, dm_end, fmin, fmax, nchans, wmin, dont_select=False):
     """
     Trial DMs are selected such that the amount of pulse broadening caused by
     DM error is no greater than max(tsmear, wmin) where tsmear is the amount
@@ -33,6 +33,8 @@ def select_dms(trial_dms, dm_start, dm_end, fmin, fmax, nchans, wmin):
     selected : ndarray
     """
     trial_dms = np.asarray(trial_dms)
+    if dont_select:
+        return trial_dms
     mask = (trial_dms >= dm_start) & (trial_dms <= dm_end)
     trial_dms = trial_dms[mask]
     trial_dms = np.sort(trial_dms)
@@ -172,9 +174,14 @@ class DMIterator(object):
 
     # TODO: actually implement dmsinb_max
     def __init__(self, filenames, dm_start, dm_end, dmsinb_max=45.0, fmt='presto', wmin=1.0e-3,
-                 fmin=None, fmax=None, nchans=None):
+                 fmin=None, fmax=None, nchans=None, dont_select=False):
         mdloader = self.METADATA_LOADERS[fmt]
         self.metadata_list = [mdloader(fname) for fname in filenames]
+        if dont_select:
+            log.info("DMs have been pre-selected; DMs will not be thinned at all")
+            dm_start = None
+            dm_end = None
+            dmsinb_max = None
         self.dm_start = float(dm_start) if dm_start is not None \
             else min(md['dm'] for md in self.metadata_list)
         self.dm_end = float(dm_end) if dm_end is not None \
@@ -192,7 +199,7 @@ class DMIterator(object):
                 f"At b = {gb_deg:.2f} deg this means a max DM of {galactic_dm_cap:.4f}"
                 )
             self.dm_end = min(self.dm_end, galactic_dm_cap)
-        
+
         log.info(f"Selecting DM trials in the range {self.dm_start:.4f} to {self.dm_end:.4f}")
 
         # Try to infer band parameters from the data

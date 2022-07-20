@@ -58,7 +58,7 @@ PIPELINE_CONFIG_SCHEMA = Schema({
 
     'data': {
         'format': Schema(
-            lambda x: x in VALID_FORMATS, 
+            lambda x: x in VALID_FORMATS,
             error=f"format must be one of {VALID_FORMATS}"),
         'fmin': Or(
             And(Use(float), strictly_positive), None,
@@ -75,8 +75,11 @@ PIPELINE_CONFIG_SCHEMA = Schema({
         'min': Or(Use(float), None, error="Minimum DM must be a number or null/blank"),
         'max': Or(Use(float), None, error="Maximum DM must be a number or null/blank"),
         'dmsinb_max': Or(
-            strictly_positive, None, 
+            strictly_positive, None,
             error="dmsinb_max must be a number > 0 or null/blank"),
+        'dont_select': Or(
+            Use(bool), False,
+            error="dont_select must either be a boolean or null/blank"),
         },
 
     'dereddening': {
@@ -106,7 +109,7 @@ PIPELINE_CONFIG_SCHEMA = Schema({
         'remove_harmonics': Or(
             bool, None, error='remove_harmonics must be a boolean or null/blank'),
         'max_number': Or(
-            And(int, strictly_positive), None, 
+            And(int, strictly_positive), None,
             error='Candidate max_number must be an int > 0 or null/blank'),
         },
 
@@ -128,13 +131,13 @@ def validate_range(rg, tsamp_max):
         raise InvalidSearchRange(
             f"Search range {period_min:.3e} to {period_max:.3e} seconds: requested phase "
             "resolution is too high w.r.t. coarsest input time series "
-            f"(tsamp = {tsamp_max:.3e} seconds). Use smaller bins_min or larger period_min.") 
+            f"(tsamp = {tsamp_max:.3e} seconds). Use smaller bins_min or larger period_min.")
 
     if cand_bins * tsamp_max > period_min:
         raise InvalidSearchRange(
             f"Search range {period_min:.3e} to {period_max:.3e} seconds: "
             f"cannot fold candidates with such high resolution ({cand_bins:d} bins). "
-            f"The coarsest input time series ({tsamp_max:.3e} seconds) does not allow it")  
+            f"The coarsest input time series ({tsamp_max:.3e} seconds) does not allow it")
 
 
 def validate_ranges_contiguity(ranges):
@@ -149,7 +152,7 @@ def validate_ranges_contiguity(ranges):
 
 
 def validate_ranges(ranges, tsamp_max):
-    """ 
+    """
     Check that the search ranges are valid. Raise an exception if not.
 
     Parameters
@@ -166,12 +169,12 @@ def validate_ranges(ranges, tsamp_max):
     for rg in ranges:
         validate_range(rg, tsamp_max)
     validate_ranges_contiguity(ranges)
-    
+
 
 def validate_pipeline_config(conf):
     """
     Validate pipeline configuration dictionary and raise an error if it is
-    incorrect. This function only checks the format of the config and 
+    incorrect. This function only checks the format of the config and
     the data types.
 
     Parameters
