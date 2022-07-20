@@ -228,7 +228,7 @@ class DMIterator(object):
             f"{self.dm_start:.4f} to {self.dm_end:.4f}")
         self.selected_dms = select_dms(
             list(self.metadata_dict.keys()),
-            self.dm_start, self.dm_end, self.fmin, self.fmax, self.nchans, self.wmin
+            self.dm_start, self.dm_end, self.fmin, self.fmax, self.nchans, self.wmin, dont_select=dont_select
             )
 
         log.info(
