@@ -38,7 +38,7 @@ def DM_range_circles(ax, dms, dm_radii, yoffset=0, facecolor='r', edgecolor='non
 
 
 
-def select_dms(trial_dms, dm_start, dm_end, fmin, fmax, nchans, wmin, dont_select=False, cdms=None, plot=False):
+def select_dms(trial_dms, dm_start, dm_end, fmin, fmax, nchans, wmin, dont_select=None, cdms=None, plot=False):
     """
     Trial DMs are selected such that the amount of pulse broadening caused by
     DM error is no greater than max(tsmear, wmin) where tsmear is the amount
@@ -59,7 +59,7 @@ def select_dms(trial_dms, dm_start, dm_end, fmin, fmax, nchans, wmin, dont_selec
     selected : ndarray
     """
     trial_dms = np.asarray(trial_dms)
-    if dont_select:
+    if dont_select is not None and dont_select:
         return trial_dms
     if cdms is not None:
         if isinstance(cdms, int) or isinstance(cdms, float) or len(cdms) == 1:
@@ -243,11 +243,11 @@ class DMIterator(object):
 
     # TODO: actually implement dmsinb_max
     def __init__(self, filenames, dm_start, dm_end, dmsinb_max=45.0, fmt='presto', wmin=1.0e-3,
-                 fmin=None, fmax=None, nchans=None, dont_select=False, cdms=None):
+                 fmin=None, fmax=None, nchans=None, dont_select=None, cdms=None):
         mdloader = self.METADATA_LOADERS[fmt]
         self.metadata_list = [mdloader(fname) for fname in filenames]
-        if dont_select:
-            log.info("DMs have been pre-selected; DMs will not be thinned at all")
+        if dont_select is not None and dont_select:
+            log.info("DMs will not be thinned at all")
             dm_start = None
             dm_end = None
             dmsinb_max = None
