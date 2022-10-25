@@ -2,6 +2,10 @@ import logging
 import numpy as np
 from numpy import sin, radians
 from riptide import TimeSeries, Metadata
+import copy
+import matplotlib.pyplot as plt
+from matplotlib.collections import PatchCollection
+from matplotlib.patches import Circle
 
 
 log = logging.getLogger('riptide.pipeline.dmiter')
@@ -12,7 +16,29 @@ log = logging.getLogger('riptide.pipeline.dmiter')
 KDM = 1.0 / 2.41e-4
 
 
-def select_dms(trial_dms, dm_start, dm_end, fmin, fmax, nchans, wmin, dont_select=False):
+def DM_range_circles(ax, dms, dm_radii, yoffset=0, facecolor='r', edgecolor='none', alpha=0.5):
+    """Plot DM coverage"""
+    max_radius = max(dm_radii)
+
+    # Loop over dms, create circle for covereage for each dm
+    circles = [Circle((dm, yoffset + max_radius), radius=rad)
+                  for dm, rad in zip(dms, dm_radii)]
+
+    # Create patch collection with specified colour/alpha
+    pc = PatchCollection(circles, facecolor=facecolor, alpha=alpha,
+                         edgecolor=edgecolor)
+
+    # Add collection to axes
+    ax.add_collection(pc)
+
+    # Plot dms themselves
+    ax.scatter(dms, np.zeros_like(dms) + yoffset + max_radius, s=1, c=facecolor, marker='.')
+
+    return yoffset + 2*max_radius
+
+
+
+def select_dms(trial_dms, dm_start, dm_end, fmin, fmax, nchans, wmin, dont_select=False, cdms=None, plot=False):
     """
     Trial DMs are selected such that the amount of pulse broadening caused by
     DM error is no greater than max(tsmear, wmin) where tsmear is the amount
@@ -35,9 +61,26 @@ def select_dms(trial_dms, dm_start, dm_end, fmin, fmax, nchans, wmin, dont_selec
     trial_dms = np.asarray(trial_dms)
     if dont_select:
         return trial_dms
+    if cdms is not None:
+        if isinstance(cdms, int) or isinstance(cdms, float) or len(cdms) == 1:
+            # deal with single cdm
+            tmp = copy.deepcopy(cdms)
+            cdms = np.zeros_like(trial_dms)
+            cdms[:] = tmp
+        elif len(cdms) == len(trial_dms):
+            # want this to be the form of everything else
+            cdms = np.asarray(cdms)
+        else:
+            raise AttributeError(f"cdms either needs to be a single value, or the same length as the trial_dms")
+
+
     mask = (trial_dms >= dm_start) & (trial_dms <= dm_end)
     trial_dms = trial_dms[mask]
-    trial_dms = np.sort(trial_dms)
+    cdms = cdms[mask]
+
+    dminds = trial_dms.argsort()
+    cdms = cdms[dminds]
+    trial_dms = trial_dms[dminds]
 
     if not trial_dms.size:
         raise ValueError(f"No trial DMs between {dm_start:.4f} and {dm_end:.4f}")
@@ -52,7 +95,7 @@ def select_dms(trial_dms, dm_start, dm_end, fmin, fmax, nchans, wmin, dont_selec
 
     # Coverage radius (in DM space) of every trial DM
     # Within this radius, the total smearing time is <= wmin
-    radii = np.maximum(wmin, ksmear * trial_dms) / kdisp
+    radii = np.maximum(wmin, ksmear * np.abs(trial_dms - cdms)) / kdisp
 
     def dm_gap(i, j): # assumes i <= j
         return (trial_dms[j] - radii[j]) - (trial_dms[i] + radii[i])
@@ -65,6 +108,7 @@ def select_dms(trial_dms, dm_start, dm_end, fmin, fmax, nchans, wmin, dont_selec
 
     icur = 0
     selected = [trial_dms[icur]]
+    selected_radii = [radii[icur]]
 
     while True:
         inext = largest_in_range(icur)
@@ -78,7 +122,29 @@ def select_dms(trial_dms, dm_start, dm_end, fmin, fmax, nchans, wmin, dont_selec
                 f"{2 * radii[icur]:.4f}, "
                 f"but the next available trial DM lies farther, at {trial_dms[inext]:.4f}")
         selected.append(trial_dms[inext])
+        selected_radii.append(radii[inext])
         icur = inext
+
+    if plot:
+        fig, ax = plt.subplots(2,1, sharex='col', figsize=(10,10))
+        new_y_offset = DM_range_circles(ax[0], trial_dms, radii, yoffset=0, facecolor='r',
+                     edgecolor='none', alpha=0.2)
+        tmp = DM_range_circles(ax[0], selected, selected_radii, yoffset=new_y_offset, facecolor='b',
+                     edgecolor='none', alpha=0.2)
+        ax[0].set_ylabel("smearing in DM space (pc cm$^{-3}$)")
+        ax[0].set_xlabel("DM (pc cm$^{-3}$)")
+
+        ax[1].scatter(selected, np.asarray(selected_radii)*kdisp*1E3, s=1, c='b', marker='.', label='selected')
+        ax[1].plot(trial_dms, ksmear * np.abs(trial_dms - cdms)*1E3, c='r', label='dm smearing')
+        ax[1].axhline(wmin*1E3, c='orange', label="minimum bin size")
+        ax[1].legend()
+        ax[1].set_ylim([wmin*0.5E3, None])
+        ax[1].set_yscale('log')
+        ax[1].set_ylabel('smearing timescale (ms)')
+        ax[1].set_xlabel('DM (pc cm$^{-3}$)')
+        plt.show()
+
+
     return np.asarray(selected)
 
 
@@ -165,6 +231,9 @@ class DMIterator(object):
     nchans : int or None
         Number of observing channels. Leave this to None unless the
         time series header / metadata does not contain this value.
+    cdms : int, float, a list/array of ints/floats, or None
+        Coherent DMs corresponding to each filename, or one coherent DM for
+        all filenames
     """
 
     METADATA_LOADERS = {
@@ -174,7 +243,7 @@ class DMIterator(object):
 
     # TODO: actually implement dmsinb_max
     def __init__(self, filenames, dm_start, dm_end, dmsinb_max=45.0, fmt='presto', wmin=1.0e-3,
-                 fmin=None, fmax=None, nchans=None, dont_select=False):
+                 fmin=None, fmax=None, nchans=None, dont_select=False, cdms=None):
         mdloader = self.METADATA_LOADERS[fmt]
         self.metadata_list = [mdloader(fname) for fname in filenames]
         if dont_select:
@@ -189,6 +258,7 @@ class DMIterator(object):
         self.dmsinb_max = float(dmsinb_max) if dmsinb_max is not None else None
         self.fmt = fmt
         self.wmin = wmin
+        self.cdms = cdms
 
         # Apply DM sin |b| cap, if any
         gl_deg, gb_deg = get_galactic_coordnates(self.metadata_list)
@@ -228,7 +298,8 @@ class DMIterator(object):
             f"{self.dm_start:.4f} to {self.dm_end:.4f}")
         self.selected_dms = select_dms(
             list(self.metadata_dict.keys()),
-            self.dm_start, self.dm_end, self.fmin, self.fmax, self.nchans, self.wmin, dont_select=dont_select
+            self.dm_start, self.dm_end, self.fmin, self.fmax, self.nchans, self.wmin,
+            dont_select=dont_select, cdms=self.cdms,
             )
 
         log.info(
