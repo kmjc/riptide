@@ -77,9 +77,11 @@ PIPELINE_CONFIG_SCHEMA = Schema({
         'dmsinb_max': Or(
             strictly_positive, None,
             error="dmsinb_max must be a number > 0 or null/blank"),
-        'dont_select': Or(
-            Use(bool), False,
-            error="dont_select must either be a boolean or null/blank"),
+        Optional('dont_select'): Or(
+            Use(bool), None, error="dont_select must either be a boolean or null/blank"),
+        Optional('coherent_dm'): Or(
+            And(Use(float), strictly_positive), None,
+            error='coherent_dm must be a number > 0 or null/blank')
         },
 
     'dereddening': {
