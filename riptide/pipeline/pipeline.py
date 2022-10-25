@@ -133,7 +133,7 @@ class Pipeline(object):
                 return dict(rng)
 
     @timing
-    def prepare(self, files):
+    def prepare(self, files, where_coherent_dms=None):
         """
         Inspect input files and select a minimal set to process
 
@@ -142,6 +142,24 @@ class Pipeline(object):
         log.info("Preparing pipeline")
         log.debug("Input files: {}".format(len(files)))
         conf = self.config
+
+        # deal with coherent DMs if exist
+        # can pass in a coherent dm for each file, via a yaml file
+        # or set one coherent dm for all files in the config
+        if where_coherent_dms is not None:
+            with open(where_coherent_dms, "r") as f:
+                coherent_dm_dict = yaml.safe_load(f)
+            try:
+                cdms = [coherent_dm_dict[os.path.basename(ff)] for ff in files]
+            except Exception as err:
+                log.error(err)
+                log.error(traceback.format_exc())
+                cdms = None
+        elif conf['dmselect']['coherent_dm'] is not None:
+            cdms = conf['dmselect']['coherent_dm']
+        else:
+            cdms = None
+
 
         # The DM iterator is in charge of:
         # - checking the time series
@@ -158,6 +176,7 @@ class Pipeline(object):
             fmax=conf['data']['fmax'],
             nchans=conf['data']['nchans'],
             dont_select=conf['dmselect']['dont_select'],
+            cdms=cdms
         )
 
         tsamp_max = self.dmiter.tsamp_max()
@@ -381,8 +400,8 @@ class Pipeline(object):
         log.info("Data products written")
 
     @timing
-    def process(self, files, outdir):
-        self.prepare(files)
+    def process(self, files, outdir, where_coherent_dms=None):
+        self.prepare(files, where_coherent_dms=where_coherent_dms)
         self.search()
         self.cluster_peaks()
         self.flag_harmonics()
@@ -457,6 +476,12 @@ def get_parser():
     parser.add_argument(
         '--version', action='version', version=__version__
         )
+    parser.add_argument(
+        "--coherent_dm_file",
+        type=str,
+        default=None,
+        help="yaml file containing a dictionary mapping (os.path.basename of) files to their coherent DMs"
+    )
     parser.add_argument("files", type=str, nargs="+", help="Input file(s) of the right format")
     return parser
 
@@ -494,7 +519,7 @@ def run_program(args):
         logging.getLogger('riptide.timing').setLevel('WARNING')
 
     pipeline = Pipeline.from_yaml_config(args.config)
-    pipeline.process(args.files, args.outdir)
+    pipeline.process(args.files, args.outdir, where_coherent_dms=args.coherent_dm_file)
 
     # If you have seen the movie "The Martian" and always wanted to look like
     # an actual scientist to your friends and family. Thank me later.
