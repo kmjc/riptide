@@ -303,7 +303,7 @@ class DMIterator(object):
             )
 
         log.info(
-            f"Selected {len(self.selected_dms)} DM trials for processing: "
+            f"Selected {len(self.selected_dms)} out of {len(filenames)} DM trials for processing: "
             f"{list(self.selected_dms)}")
 
     def iterate_filenames(self, chunksize=1):
